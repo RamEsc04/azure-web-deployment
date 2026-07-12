@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+
+metadata:
+  name: web-dev
+  labels:
+    environment: dev
+    project: azure-web-deployment
