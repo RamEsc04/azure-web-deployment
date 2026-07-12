@@ -1,0 +1,89 @@
+name: Deploy Dev to AKS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "docker/**"
+      - "tests/**"
+      - "k8s/dev/**"
+      - ".github/workflows/deploy-dev.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RESOURCE_GROUP: rg-devops-curso-RE1
+  ACR_NAME: webdeploymentprojectre1
+  AKS_NAME: web-deployment-project-re1-aks
+  IMAGE_NAME: azure-web-app
+  NAMESPACE: web-dev
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt
+
+      - name: Ejecutar pruebas
+        run: pytest tests -v
+
+      - name: Iniciar sesión en Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Construir imagen en ACR
+        run: |
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image "$IMAGE_NAME:${{ github.sha }}" \
+            --file docker/Dockerfile \
+            .
+
+      - name: Obtener credenciales de AKS
+        run: |
+          az aks get-credentials \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$AKS_NAME" \
+            --admin \
+            --overwrite-existing
+
+      - name: Aplicar manifiestos Kubernetes
+        run: |
+          kubectl apply -f k8s/dev/namespace.yaml
+          kubectl apply -f k8s/dev/deployment.yaml
+          kubectl apply -f k8s/dev/service.yaml
+
+      - name: Actualizar imagen del Deployment
+        run: |
+          kubectl set image \
+            deployment/azure-web-app \
+            azure-web-app="$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}" \
+            --namespace "$NAMESPACE"
+
+      - name: Verificar despliegue
+        run: |
+          kubectl rollout status \
+            deployment/azure-web-app \
+            --namespace "$NAMESPACE" \
+            --timeout=300s
+
+          kubectl get pods --namespace "$NAMESPACE"
+          kubectl get services --namespace "$NAMESPACE"
