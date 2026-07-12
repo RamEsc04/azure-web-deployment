@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplicación DevOps en Azure</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f3f6f9;
+            margin: 0;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.10);
+        }
+
+        h1 {
+            color: #0078d4;
+        }
+
+        .status {
+            color: green;
+            font-weight: bold;
+        }
+
+        .information {
+            margin-top: 25px;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Aplicación DevOps en Azure</h1>
+
+        <p class="status">Estado: funcionando</p>
+
+        <div class="information">
+            <p><strong>Ambiente:</strong> {{ environment }}</p>
+            <p><strong>Versión:</strong> {{ version }}</p>
+            <p><strong>Hostname:</strong> {{ hostname }}</p>
+        </div>
+    </div>
+</body>
+</html>
