@@ -33,7 +33,7 @@ concurrency:
 env:
   RESOURCE_GROUP: rg-devops-curso-RE1
   ACR_NAME: webdeploymentprojectre1
-  AKS_NAME: web-deployment-project-re1-aks
+  AKS_NAME: web-deployment-project-re1-aks-west
   IMAGE_NAME: azure-web-app
 
 jobs:

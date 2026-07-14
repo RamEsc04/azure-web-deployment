@@ -28,7 +28,7 @@ concurrency:
 
 env:
   RESOURCE_GROUP: rg-devops-curso-RE1
-  AKS_NAME: web-deployment-project-re1-aks
+  AKS_NAME: web-deployment-project-re1-aks-west
   DEPLOYMENT_NAME: azure-web-app
 
 jobs:
