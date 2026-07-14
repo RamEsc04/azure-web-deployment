@@ -1,4 +1,4 @@
-name: Deploy Dev to AKS
+name: Deploy to AKS
 
 on:
   push:
@@ -8,20 +8,33 @@ on:
       - "app/**"
       - "docker/**"
       - "tests/**"
-      - "k8s/dev/**"
+      - "k8s/**"
       - ".github/workflows/deploy-dev.yml"
 
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente a desplegar"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
 
 permissions:
   contents: read
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: true
 
 env:
   RESOURCE_GROUP: rg-devops-curso-RE1
   ACR_NAME: webdeploymentprojectre1
   AKS_NAME: web-deployment-project-re1-aks
   IMAGE_NAME: azure-web-app
-  NAMESPACE: web-dev
 
 jobs:
   build-test-deploy:
@@ -30,6 +43,19 @@ jobs:
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
+
+      - name: Preparar ambiente
+        shell: bash
+        run: |
+          DEPLOY_ENV="${{ inputs.environment || 'dev' }}"
+
+          echo "DEPLOY_ENV=$DEPLOY_ENV" >> "$GITHUB_ENV"
+          echo "NAMESPACE=web-$DEPLOY_ENV" >> "$GITHUB_ENV"
+          echo "MANIFEST_PATH=k8s/$DEPLOY_ENV" >> "$GITHUB_ENV"
+
+          echo "Ambiente seleccionado: $DEPLOY_ENV"
+          echo "Namespace: web-$DEPLOY_ENV"
+          echo "Ruta de manifiestos: k8s/$DEPLOY_ENV"
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -43,6 +69,12 @@ jobs:
 
       - name: Ejecutar pruebas
         run: pytest tests -v
+
+      - name: Validar manifiestos Kubernetes
+        run: |
+          kubectl apply --dry-run=client -f "$MANIFEST_PATH/namespace.yaml"
+          kubectl apply --dry-run=client -f "$MANIFEST_PATH/deployment.yaml"
+          kubectl apply --dry-run=client -f "$MANIFEST_PATH/service.yaml"
 
       - name: Iniciar sesión en Azure
         uses: azure/login@v2
@@ -67,9 +99,9 @@ jobs:
 
       - name: Aplicar manifiestos Kubernetes
         run: |
-          kubectl apply -f k8s/dev/namespace.yaml
-          kubectl apply -f k8s/dev/deployment.yaml
-          kubectl apply -f k8s/dev/service.yaml
+          kubectl apply -f "$MANIFEST_PATH/namespace.yaml"
+          kubectl apply -f "$MANIFEST_PATH/deployment.yaml"
+          kubectl apply -f "$MANIFEST_PATH/service.yaml"
 
       - name: Actualizar imagen del Deployment
         run: |
@@ -85,5 +117,18 @@ jobs:
             --namespace "$NAMESPACE" \
             --timeout=300s
 
-          kubectl get pods --namespace "$NAMESPACE"
+          echo "Pods desplegados:"
+          kubectl get pods --namespace "$NAMESPACE" -o wide
+
+          echo "Servicios:"
           kubectl get services --namespace "$NAMESPACE"
+
+          echo "Imagen desplegada:"
+          kubectl get deployment azure-web-app \
+            --namespace "$NAMESPACE" \
+            -o jsonpath="{.spec.template.spec.containers[0].image}"
+
+          echo ""
+          echo "Historial:"
+          kubectl rollout history deployment/azure-web-app \
+            --namespace "$NAMESPACE"
