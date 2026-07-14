@@ -1,37 +1,45 @@
 import os
 from datetime import datetime, timezone
 
+import requests
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
 
 APP_ENV = os.getenv("APP_ENV", "dev")
 APP_VERSION = os.getenv("APP_VERSION", "1.0.0-dev")
+WEATHER_LATITUDE = os.getenv("WEATHER_LATITUDE", "25.6866")
+WEATHER_LONGITUDE = os.getenv("WEATHER_LONGITUDE", "-100.3161")
+WEATHER_LOCATION = os.getenv("WEATHER_LOCATION", "Monterrey")
 
 ZONAS = [
     {
         "nombre": "Oficinas",
         "ocupacion": "Ocupada",
         "iluminacion": 80,
-        "estado": "Operativa"
+        "estado": "Operativa",
+        "modo": "automatico"
     },
     {
         "nombre": "Sala de juntas",
         "ocupacion": "Desocupada",
         "iluminacion": 20,
-        "estado": "Operativa"
+        "estado": "Operativa",
+        "modo": "automatico"
     },
     {
         "nombre": "Almacén",
         "ocupacion": "Ocupada",
         "iluminacion": 100,
-        "estado": "Operativa"
+        "estado": "Operativa",
+        "modo": "automatico"
     },
     {
         "nombre": "Estacionamiento",
         "ocupacion": "Desocupado",
         "iluminacion": 40,
-        "estado": "Mantenimiento"
+        "estado": "Mantenimiento",
+        "modo": "automatico"
     }
 ]
 
@@ -136,6 +144,68 @@ HTML_TEMPLATE = """
             border: 1px solid #cbd5e1;
             border-radius: 5px;
             background-color: white;
+        }
+
+        .mode-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 190px;
+        }
+
+        .mode-badge {
+            display: inline-block;
+            min-width: 82px;
+            padding: 6px 9px;
+            border-radius: 999px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .mode-badge.automatico {
+            background-color: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .mode-badge.manual {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .daylighting-panel {
+            margin-top: 25px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.10);
+        }
+
+        .daylighting-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .daylighting-item {
+            background-color: #f8fafc;
+            padding: 14px;
+            border-radius: 7px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .daylighting-item strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .daylighting-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
         }
 
         .alerts-panel {
@@ -267,6 +337,7 @@ HTML_TEMPLATE = """
                     <th>Zona</th>
                     <th>Ocupación</th>
                     <th>Iluminación</th>
+                    <th>Modo</th>
                     <th>Estado</th>
                 </tr>
             </thead>
@@ -343,6 +414,27 @@ HTML_TEMPLATE = """
                         </div>
                     </td>
 
+                    <td>
+                        <div class="mode-control">
+                            <span
+                                id="mode-{{ loop.index }}"
+                                class="mode-badge {{ zona.modo }}"
+                            >
+                                {{ zona.modo }}
+                            </span>
+
+                            <button
+                                id="automatic-button-{{ loop.index }}"
+                                onclick='enableAutomaticMode(
+                                    {{ zona.nombre | tojson }},
+                                    "{{ loop.index }}"
+                                )'
+                            >
+                                Automático
+                            </button>
+                        </div>
+                    </td>
+
                     <td>{{ zona.estado }}</td>
                 </tr>
                 {% endfor %}
@@ -350,6 +442,51 @@ HTML_TEMPLATE = """
         </table>
 
         <div id="message" class="message"></div>
+
+        <div class="daylighting-panel">
+            <h2>Daylighting automático</h2>
+            <p>
+                Ajusta únicamente las zonas en modo automático usando
+                luz natural, horario y ocupación.
+            </p>
+
+            <div class="daylighting-grid">
+                <div class="daylighting-item">
+                    <strong>Ubicación</strong>
+                    <span id="daylighting-location">Consultando...</span>
+                </div>
+
+                <div class="daylighting-item">
+                    <strong>Periodo</strong>
+                    <span id="daylighting-period">Consultando...</span>
+                </div>
+
+                <div class="daylighting-item">
+                    <strong>Radiación solar</strong>
+                    <span id="daylighting-radiation">Consultando...</span>
+                </div>
+
+                <div class="daylighting-item">
+                    <strong>Luz natural</strong>
+                    <span id="daylighting-level">Consultando...</span>
+                </div>
+
+                <div class="daylighting-item">
+                    <strong>Recomendación base</strong>
+                    <span id="daylighting-recommendation">Consultando...</span>
+                </div>
+            </div>
+
+            <div class="daylighting-actions">
+                <button onclick="loadDaylighting()">
+                    Actualizar datos solares
+                </button>
+
+                <button onclick="applyAutomaticDaylighting()">
+                    Aplicar ajuste automático
+                </button>
+            </div>
+        </div>
 
         <div class="alerts-panel">
             <h2>Alertas activas</h2>
@@ -387,6 +524,16 @@ HTML_TEMPLATE = """
             <p>
                 API de alertas disponible en
                 <strong>/api/alerts</strong>
+            </p>
+
+            <p>
+                API de daylighting disponible en
+                <strong>/api/daylighting</strong>
+            </p>
+
+            <p>
+                Ajuste automático disponible en
+                <strong>/api/daylighting/automatic</strong>
             </p>
         </div>
 
@@ -506,6 +653,152 @@ HTML_TEMPLATE = """
             }
         }
 
+        function updateZoneInterface(zoneName, lighting, mode) {
+            const rows = document.querySelectorAll("tbody tr");
+
+            for (const row of rows) {
+                const firstCell = row.querySelector("td");
+
+                if (!firstCell || firstCell.textContent.trim() !== zoneName) {
+                    continue;
+                }
+
+                const slider = row.querySelector('input[type="range"]');
+                const valueElement = row.querySelector(".lighting-value");
+                const modeElement = row.querySelector(".mode-badge");
+
+                if (slider) {
+                    slider.value = lighting;
+                }
+
+                if (valueElement) {
+                    valueElement.textContent = `${lighting}%`;
+                }
+
+                if (modeElement) {
+                    modeElement.textContent = mode;
+                    modeElement.className = `mode-badge ${mode}`;
+                }
+            }
+        }
+
+        async function enableAutomaticMode(zoneName, index) {
+            const button = document.getElementById(
+                `automatic-button-${index}`
+            );
+
+            button.disabled = true;
+            button.textContent = "Activando...";
+
+            try {
+                const response = await fetch(
+                    `/api/zones/${encodeURIComponent(zoneName)}/automatic`,
+                    {
+                        method: "PUT"
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.error || "No fue posible activar el modo automático"
+                    );
+                }
+
+                const modeElement = document.getElementById(
+                    `mode-${index}`
+                );
+
+                modeElement.textContent = data.mode;
+                modeElement.className = `mode-badge ${data.mode}`;
+
+                showMessage(
+                    `${data.zone} ahora está en modo automático`,
+                    "success"
+                );
+            } catch (error) {
+                showMessage(error.message, "error");
+            } finally {
+                button.disabled = false;
+                button.textContent = "Automático";
+            }
+        }
+
+        async function loadDaylighting() {
+            try {
+                const response = await fetch("/api/daylighting");
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.error || "No fue posible consultar daylighting"
+                    );
+                }
+
+                document.getElementById(
+                    "daylighting-location"
+                ).textContent = data.location;
+
+                document.getElementById(
+                    "daylighting-period"
+                ).textContent = data.is_day ? "Día" : "Noche";
+
+                document.getElementById(
+                    "daylighting-radiation"
+                ).textContent =
+                    `${data.solar_radiation} ${data.solar_radiation_unit}`;
+
+                document.getElementById(
+                    "daylighting-level"
+                ).textContent = data.natural_light_level;
+
+                document.getElementById(
+                    "daylighting-recommendation"
+                ).textContent =
+                    `${data.recommended_artificial_lighting}%`;
+            } catch (error) {
+                showMessage(error.message, "error");
+            }
+        }
+
+        async function applyAutomaticDaylighting() {
+            try {
+                const response = await fetch(
+                    "/api/daylighting/automatic",
+                    {
+                        method: "POST"
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.error || "No fue posible aplicar daylighting"
+                    );
+                }
+
+                for (const zone of data.updated_zones) {
+                    updateZoneInterface(
+                        zone.zone,
+                        zone.lighting,
+                        zone.mode
+                    );
+                }
+
+                showMessage(
+                    `Daylighting aplicado a ${data.updated_zones.length} zonas`,
+                    "success"
+                );
+
+                await loadDaylighting();
+                await loadAlerts();
+            } catch (error) {
+                showMessage(error.message, "error");
+            }
+        }
+
         async function updateLighting(zoneName, index) {
             const slider = document.getElementById(
                 `slider-${index}`
@@ -542,6 +835,13 @@ HTML_TEMPLATE = """
                     );
                 }
 
+                const modeElement = document.getElementById(
+                    `mode-${index}`
+                );
+
+                modeElement.textContent = data.mode;
+                modeElement.className = `mode-badge ${data.mode}`;
+
                 showMessage(
                     `${data.zone} actualizada a ${data.lighting}%`,
                     "success"
@@ -556,7 +856,10 @@ HTML_TEMPLATE = """
             }
         }
 
-        document.addEventListener("DOMContentLoaded", loadAlerts);
+        document.addEventListener("DOMContentLoaded", async () => {
+            await loadDaylighting();
+            await loadAlerts();
+        });
     </script>
 </body>
 </html>
@@ -645,11 +948,189 @@ def update_zone_lighting(zone_name):
         }), 404
 
     zone["iluminacion"] = lighting
+    zone["modo"] = "manual"
 
     return jsonify({
         "message": "Nivel de iluminación actualizado",
         "zone": zone["nombre"],
         "lighting": zone["iluminacion"],
+        "mode": zone["modo"],
+        "environment": APP_ENV,
+        "version": APP_VERSION
+    }), 200
+
+
+
+def get_daylighting_data():
+    weather_url = "https://api.open-meteo.com/v1/forecast"
+
+    parameters = {
+        "latitude": WEATHER_LATITUDE,
+        "longitude": WEATHER_LONGITUDE,
+        "current": (
+            "shortwave_radiation,"
+            "direct_radiation,"
+            "diffuse_radiation,"
+            "direct_normal_irradiance,"
+            "cloud_cover,"
+            "is_day"
+        ),
+        "timezone": "auto"
+    }
+
+    response = requests.get(
+        weather_url,
+        params=parameters,
+        timeout=5
+    )
+    response.raise_for_status()
+
+    current = response.json().get("current")
+
+    if current is None:
+        raise ValueError("No se recibieron datos solares")
+
+    solar_radiation = current.get("shortwave_radiation") or 0
+    is_day = current.get("is_day") == 1
+
+    if not is_day:
+        natural_light_level = "sin luz natural"
+        recommended_lighting = 80
+        condition = "night"
+    elif solar_radiation >= 700:
+        natural_light_level = "alta"
+        recommended_lighting = 20
+        condition = "high_daylight"
+    elif solar_radiation >= 400:
+        natural_light_level = "media"
+        recommended_lighting = 40
+        condition = "medium_daylight"
+    elif solar_radiation >= 150:
+        natural_light_level = "baja"
+        recommended_lighting = 65
+        condition = "low_daylight"
+    else:
+        natural_light_level = "muy baja"
+        recommended_lighting = 90
+        condition = "very_low_daylight"
+
+    return {
+        "location": WEATHER_LOCATION,
+        "solar_radiation": solar_radiation,
+        "solar_radiation_unit": "W/m²",
+        "direct_radiation": current.get("direct_radiation"),
+        "diffuse_radiation": current.get("diffuse_radiation"),
+        "direct_normal_irradiance": current.get(
+            "direct_normal_irradiance"
+        ),
+        "cloud_cover": current.get("cloud_cover"),
+        "is_day": is_day,
+        "natural_light_level": natural_light_level,
+        "recommended_artificial_lighting": recommended_lighting,
+        "condition": condition,
+        "timestamp": current.get("time")
+    }
+
+
+@app.route("/api/daylighting")
+def api_daylighting():
+    try:
+        daylighting = get_daylighting_data()
+
+        return jsonify({
+            **daylighting,
+            "environment": APP_ENV,
+            "version": APP_VERSION
+        }), 200
+
+    except requests.Timeout:
+        return jsonify({
+            "error": "El servicio solar tardó demasiado"
+        }), 504
+
+    except (requests.RequestException, ValueError) as error:
+        return jsonify({
+            "error": "No fue posible consultar la luz natural",
+            "details": str(error)
+        }), 502
+
+
+@app.route("/api/daylighting/automatic", methods=["POST"])
+def apply_automatic_daylighting():
+    try:
+        daylighting = get_daylighting_data()
+        base_lighting = daylighting[
+            "recommended_artificial_lighting"
+        ]
+        is_day = daylighting["is_day"]
+
+        updated_zones = []
+
+        for zone in ZONAS:
+            if zone.get("modo") != "automatico":
+                continue
+
+            occupied = zone["ocupacion"].lower().startswith("ocup")
+
+            if is_day:
+                lighting = base_lighting if occupied else 0
+            else:
+                lighting = max(base_lighting, 80) if occupied else 10
+
+            zone["iluminacion"] = lighting
+
+            updated_zones.append({
+                "zone": zone["nombre"],
+                "lighting": lighting,
+                "occupancy": zone["ocupacion"],
+                "mode": zone["modo"]
+            })
+
+        return jsonify({
+            "message": "Daylighting automático aplicado",
+            **daylighting,
+            "updated_zones": updated_zones,
+            "environment": APP_ENV,
+            "version": APP_VERSION
+        }), 200
+
+    except requests.Timeout:
+        return jsonify({
+            "error": "El servicio solar tardó demasiado"
+        }), 504
+
+    except (requests.RequestException, ValueError) as error:
+        return jsonify({
+            "error": "No fue posible aplicar el modo automático",
+            "details": str(error)
+        }), 502
+
+
+@app.route(
+    "/api/zones/<string:zone_name>/automatic",
+    methods=["PUT"]
+)
+def enable_automatic_mode(zone_name):
+    zone = next(
+        (
+            zone
+            for zone in ZONAS
+            if zone["nombre"].lower() == zone_name.lower()
+        ),
+        None
+    )
+
+    if zone is None:
+        return jsonify({
+            "error": "Zona no encontrada"
+        }), 404
+
+    zone["modo"] = "automatico"
+
+    return jsonify({
+        "message": "Modo automático activado",
+        "zone": zone["nombre"],
+        "mode": zone["modo"],
         "environment": APP_ENV,
         "version": APP_VERSION
     }), 200
