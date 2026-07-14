@@ -26,4 +26,4 @@ def test_health_route():
 
     assert response.status_code == 200
     assert data["status"] == "healthy"
-    assert data["environment"] == "DEV"
+    assert data["environment"] == "dev"
