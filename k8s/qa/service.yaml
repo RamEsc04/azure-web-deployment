@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: azure-web-app-service
+  namespace: web-qa
+  labels:
+    app: azure-web-app
+    environment: qa
+
+spec:
+  type: LoadBalancer
+
+  selector:
+    app: azure-web-app
+
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 5000

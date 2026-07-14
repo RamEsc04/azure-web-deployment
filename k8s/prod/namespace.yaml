@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+
+metadata:
+  name: web-prod
+  labels:
+    environment: prod
+    project: azure-web-deployment
