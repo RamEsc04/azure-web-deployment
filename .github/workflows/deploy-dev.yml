@@ -70,12 +70,6 @@ jobs:
       - name: Ejecutar pruebas
         run: pytest tests -v
 
-      - name: Validar manifiestos Kubernetes
-        run: |
-          kubectl apply --dry-run=client -f "$MANIFEST_PATH/namespace.yaml"
-          kubectl apply --dry-run=client -f "$MANIFEST_PATH/deployment.yaml"
-          kubectl apply --dry-run=client -f "$MANIFEST_PATH/service.yaml"
-
       - name: Iniciar sesión en Azure
         uses: azure/login@v2
         with:
@@ -96,6 +90,20 @@ jobs:
             --name "$AKS_NAME" \
             --admin \
             --overwrite-existing
+
+      - name: Validar manifiestos Kubernetes
+        run: |
+          kubectl apply \
+            --dry-run=client \
+            -f "$MANIFEST_PATH/namespace.yaml"
+
+          kubectl apply \
+            --dry-run=client \
+            -f "$MANIFEST_PATH/deployment.yaml"
+
+          kubectl apply \
+            --dry-run=client \
+            -f "$MANIFEST_PATH/service.yaml"
 
       - name: Aplicar manifiestos Kubernetes
         run: |
@@ -118,10 +126,13 @@ jobs:
             --timeout=300s
 
           echo "Pods desplegados:"
-          kubectl get pods --namespace "$NAMESPACE" -o wide
+          kubectl get pods \
+            --namespace "$NAMESPACE" \
+            -o wide
 
           echo "Servicios:"
-          kubectl get services --namespace "$NAMESPACE"
+          kubectl get services \
+            --namespace "$NAMESPACE"
 
           echo "Imagen desplegada:"
           kubectl get deployment azure-web-app \
@@ -129,6 +140,8 @@ jobs:
             -o jsonpath="{.spec.template.spec.containers[0].image}"
 
           echo ""
-          echo "Historial:"
-          kubectl rollout history deployment/azure-web-app \
+
+          echo "Historial del Deployment:"
+          kubectl rollout history \
+            deployment/azure-web-app \
             --namespace "$NAMESPACE"
