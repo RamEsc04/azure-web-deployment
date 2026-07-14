@@ -124,6 +124,59 @@ HTML_TEMPLATE = """
             font-weight: bold;
         }
 
+        .occupancy-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 230px;
+        }
+
+        .occupancy-control select {
+            padding: 7px;
+            border: 1px solid #cbd5e1;
+            border-radius: 5px;
+            background-color: white;
+        }
+
+        .alerts-panel {
+            margin-top: 25px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.10);
+        }
+
+        .alerts-summary {
+            font-weight: bold;
+            margin-bottom: 12px;
+        }
+
+        .alert-item {
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 5px solid #f59e0b;
+            background-color: #fffbeb;
+        }
+
+        .alert-item.critical {
+            border-left-color: #dc2626;
+            background-color: #fef2f2;
+        }
+
+        .alert-item.warning {
+            border-left-color: #f59e0b;
+            background-color: #fffbeb;
+        }
+
+        .no-alerts {
+            padding: 12px;
+            border-radius: 6px;
+            background-color: #dcfce7;
+            color: #166534;
+            font-weight: bold;
+        }
+
         button {
             background-color: #2563eb;
             color: white;
@@ -222,7 +275,40 @@ HTML_TEMPLATE = """
                 {% for zona in zonas %}
                 <tr>
                     <td>{{ zona.nombre }}</td>
-                    <td>{{ zona.ocupacion }}</td>
+
+                    <td>
+                        <div class="occupancy-control">
+                            <select id="occupancy-{{ loop.index }}">
+                                <option
+                                    value="Ocupada"
+                                    {% if zona.ocupacion.lower().startswith("ocup") %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    Ocupada
+                                </option>
+
+                                <option
+                                    value="Desocupada"
+                                    {% if zona.ocupacion.lower().startswith("desocup") %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    Desocupada
+                                </option>
+                            </select>
+
+                            <button
+                                id="occupancy-button-{{ loop.index }}"
+                                onclick='updateOccupancy(
+                                    {{ zona.nombre | tojson }},
+                                    "{{ loop.index }}"
+                                )'
+                            >
+                                Cambiar
+                            </button>
+                        </div>
+                    </td>
 
                     <td>
                         <div class="lighting-control">
@@ -265,6 +351,14 @@ HTML_TEMPLATE = """
 
         <div id="message" class="message"></div>
 
+        <div class="alerts-panel">
+            <h2>Alertas activas</h2>
+            <div id="alerts-summary" class="alerts-summary">
+                Consultando alertas...
+            </div>
+            <div id="alerts-list"></div>
+        </div>
+
         <div class="footer">
             <p>
                 Aplicación de demostración para prácticas de despliegue DevOps.
@@ -284,6 +378,16 @@ HTML_TEMPLATE = """
                 API de versión disponible en
                 <strong>/api/version</strong>
             </p>
+
+            <p>
+                API de ocupación disponible en
+                <strong>/api/zones/&lt;zona&gt;/occupancy</strong>
+            </p>
+
+            <p>
+                API de alertas disponible en
+                <strong>/api/alerts</strong>
+            </p>
         </div>
 
     </div>
@@ -302,6 +406,104 @@ HTML_TEMPLATE = """
 
             messageElement.textContent = text;
             messageElement.className = `message ${type}`;
+        }
+
+        async function updateOccupancy(zoneName, index) {
+            const select = document.getElementById(
+                `occupancy-${index}`
+            );
+
+            const button = document.getElementById(
+                `occupancy-button-${index}`
+            );
+
+            button.disabled = true;
+            button.textContent = "Actualizando...";
+
+            try {
+                const response = await fetch(
+                    `/api/zones/${encodeURIComponent(zoneName)}/occupancy`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            occupancy: select.value
+                        })
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.error || "No fue posible actualizar la ocupación"
+                    );
+                }
+
+                showMessage(
+                    `${data.zone} ahora está ${data.occupancy}`,
+                    "success"
+                );
+
+                await loadAlerts();
+            } catch (error) {
+                showMessage(error.message, "error");
+            } finally {
+                button.disabled = false;
+                button.textContent = "Cambiar";
+            }
+        }
+
+        async function loadAlerts() {
+            const summaryElement = document.getElementById(
+                "alerts-summary"
+            );
+
+            const listElement = document.getElementById(
+                "alerts-list"
+            );
+
+            summaryElement.textContent = "Consultando alertas...";
+            listElement.innerHTML = "";
+
+            try {
+                const response = await fetch("/api/alerts");
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.error || "No fue posible consultar las alertas"
+                    );
+                }
+
+                summaryElement.textContent =
+                    `Alertas activas: ${data.active_alerts}`;
+
+                if (data.alerts.length === 0) {
+                    listElement.innerHTML =
+                        '<div class="no-alerts">No hay alertas activas.</div>';
+                    return;
+                }
+
+                for (const alert of data.alerts) {
+                    const alertElement = document.createElement("div");
+                    alertElement.className =
+                        `alert-item ${alert.severity}`;
+
+                    alertElement.textContent =
+                        `[${alert.severity.toUpperCase()}] ` +
+                        `${alert.zone}: ${alert.message}`;
+
+                    listElement.appendChild(alertElement);
+                }
+            } catch (error) {
+                summaryElement.textContent =
+                    "No fue posible cargar las alertas";
+                listElement.innerHTML =
+                    `<div class="alert-item critical">${error.message}</div>`;
+            }
         }
 
         async function updateLighting(zoneName, index) {
@@ -344,6 +546,8 @@ HTML_TEMPLATE = """
                     `${data.zone} actualizada a ${data.lighting}%`,
                     "success"
                 );
+
+                await loadAlerts();
             } catch (error) {
                 showMessage(error.message, "error");
             } finally {
@@ -351,6 +555,8 @@ HTML_TEMPLATE = """
                 button.textContent = "Actualizar";
             }
         }
+
+        document.addEventListener("DOMContentLoaded", loadAlerts);
     </script>
 </body>
 </html>
@@ -446,6 +652,119 @@ def update_zone_lighting(zone_name):
         "lighting": zone["iluminacion"],
         "environment": APP_ENV,
         "version": APP_VERSION
+    }), 200
+
+
+@app.route(
+    "/api/zones/<string:zone_name>/occupancy",
+    methods=["PUT"]
+)
+def update_zone_occupancy(zone_name):
+    data = request.get_json(silent=True)
+
+    if not data or "occupancy" not in data:
+        return jsonify({
+            "error": "El campo occupancy es obligatorio"
+        }), 400
+
+    occupancy = str(data["occupancy"]).strip().lower()
+
+    valid_values = {
+        "ocupada": "Ocupada",
+        "ocupado": "Ocupada",
+        "desocupada": "Desocupada",
+        "desocupado": "Desocupada"
+    }
+
+    if occupancy not in valid_values:
+        return jsonify({
+            "error": "La ocupación debe ser Ocupada o Desocupada"
+        }), 400
+
+    zone = next(
+        (
+            zone
+            for zone in ZONAS
+            if zone["nombre"].lower() == zone_name.lower()
+        ),
+        None
+    )
+
+    if zone is None:
+        return jsonify({
+            "error": "Zona no encontrada"
+        }), 404
+
+    zone["ocupacion"] = valid_values[occupancy]
+
+    return jsonify({
+        "message": "Ocupación actualizada",
+        "zone": zone["nombre"],
+        "occupancy": zone["ocupacion"],
+        "environment": APP_ENV,
+        "version": APP_VERSION
+    }), 200
+
+
+@app.route("/api/alerts")
+def get_active_alerts():
+    alerts = []
+
+    for index, zone in enumerate(ZONAS, start=1):
+        zone_name = zone["nombre"]
+        occupancy = zone["ocupacion"].lower()
+        lighting = zone["iluminacion"]
+        status = zone["estado"].lower()
+
+        if status == "mantenimiento":
+            alerts.append({
+                "id": f"STATUS-{index}",
+                "severity": "warning",
+                "zone": zone_name,
+                "type": "maintenance",
+                "message": "La zona se encuentra en mantenimiento"
+            })
+
+        if status == "fuera de servicio":
+            alerts.append({
+                "id": f"STATUS-{index}",
+                "severity": "critical",
+                "zone": zone_name,
+                "type": "service_failure",
+                "message": "La zona se encuentra fuera de servicio"
+            })
+
+        if occupancy.startswith("desocup") and lighting > 50:
+            alerts.append({
+                "id": f"ENERGY-{index}",
+                "severity": "warning",
+                "zone": zone_name,
+                "type": "energy_waste",
+                "message": (
+                    "La zona está desocupada y mantiene "
+                    f"la iluminación en {lighting}%"
+                )
+            })
+
+        if occupancy.startswith("ocup") and lighting < 20:
+            alerts.append({
+                "id": f"LIGHT-{index}",
+                "severity": "warning",
+                "zone": zone_name,
+                "type": "low_lighting",
+                "message": (
+                    "La zona está ocupada y tiene un nivel "
+                    f"de iluminación bajo: {lighting}%"
+                )
+            })
+
+    return jsonify({
+        "application": "DCS Building Monitoring Simulator",
+        "environment": APP_ENV,
+        "version": APP_VERSION,
+        "active_alerts": len(alerts),
+        "alerts": alerts,
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }), 200
 
 
