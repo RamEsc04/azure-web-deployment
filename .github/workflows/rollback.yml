@@ -1,0 +1,114 @@
+name: Rollback AKS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente donde se realizará el rollback"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+
+      revision:
+        description: "Revisión destino. Dejar 0 para regresar a la versión anterior"
+        required: true
+        default: "0"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-devops-curso-RE1
+  AKS_NAME: web-deployment-project-re1-aks
+  DEPLOYMENT_NAME: azure-web-app
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Preparar ambiente
+        shell: bash
+        run: |
+          echo "NAMESPACE=web-${{ inputs.environment }}" >> "$GITHUB_ENV"
+
+          echo "Ambiente: ${{ inputs.environment }}"
+          echo "Namespace: web-${{ inputs.environment }}"
+          echo "Revisión solicitada: ${{ inputs.revision }}"
+
+      - name: Iniciar sesión en Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Obtener credenciales de AKS
+        run: |
+          az aks get-credentials \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$AKS_NAME" \
+            --admin \
+            --overwrite-existing
+
+      - name: Mostrar estado actual
+        run: |
+          echo "Imagen actual:"
+          kubectl get deployment "$DEPLOYMENT_NAME" \
+            --namespace "$NAMESPACE" \
+            -o jsonpath="{.spec.template.spec.containers[0].image}"
+
+          echo ""
+          echo "Historial disponible:"
+          kubectl rollout history \
+            deployment/"$DEPLOYMENT_NAME" \
+            --namespace "$NAMESPACE"
+
+      - name: Ejecutar rollback
+        shell: bash
+        run: |
+          if [ "${{ inputs.revision }}" = "0" ]; then
+            echo "Regresando a la revisión anterior..."
+
+            kubectl rollout undo \
+              deployment/"$DEPLOYMENT_NAME" \
+              --namespace "$NAMESPACE"
+          else
+            echo "Regresando a la revisión ${{ inputs.revision }}..."
+
+            kubectl rollout undo \
+              deployment/"$DEPLOYMENT_NAME" \
+              --namespace "$NAMESPACE" \
+              --to-revision="${{ inputs.revision }}"
+          fi
+
+      - name: Verificar rollback
+        run: |
+          kubectl rollout status \
+            deployment/"$DEPLOYMENT_NAME" \
+            --namespace "$NAMESPACE" \
+            --timeout=300s
+
+          echo "Imagen después del rollback:"
+          kubectl get deployment "$DEPLOYMENT_NAME" \
+            --namespace "$NAMESPACE" \
+            -o jsonpath="{.spec.template.spec.containers[0].image}"
+
+          echo ""
+          echo "Pods:"
+          kubectl get pods \
+            --namespace "$NAMESPACE" \
+            -o wide
+
+          echo "Historial actualizado:"
+          kubectl rollout history \
+            deployment/"$DEPLOYMENT_NAME" \
+            --namespace "$NAMESPACE"
