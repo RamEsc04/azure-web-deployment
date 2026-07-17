@@ -7,7 +7,7 @@ from flask import Flask, jsonify, render_template_string, request
 app = Flask(__name__)
 
 APP_ENV = os.getenv("APP_ENV", "dev")
-APP_VERSION = os.getenv("APP_VERSION", "1.0.0-dev")
+APP_VERSION = os.getenv("APP_VERSION", "1.1.0")
 WEATHER_LATITUDE = os.getenv("WEATHER_LATITUDE", "25.6866")
 WEATHER_LONGITUDE = os.getenv("WEATHER_LONGITUDE", "-100.3161")
 WEATHER_LOCATION = os.getenv("WEATHER_LOCATION", "Monterrey")
